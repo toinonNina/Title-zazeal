@@ -330,7 +330,9 @@ function buildPrompt(twist) {
     twist || "",
     "Varie les styles : punchline, question au chat, défi, autodérision, mystère, jeu de mots. Pas de clickbait mensonger, rien d'offensant, pas de majuscules partout.",
     avoid.length ? "Ne répète pas ces titres déjà proposés : " + JSON.stringify(avoid) : "",
-    'Réponds UNIQUEMENT avec ce JSON, sans texte autour : {"titres":[{"titre":"...","style":"punchline|question|défi|autodérision|mystère|jeu de mots|hype"}]}'
+    "FORMAT DE RÉPONSE OBLIGATOIRE : exactement 8 lignes, une par titre, sans numéro, sans puce, sans guillemets autour, sans aucun texte avant ou après.",
+    "Chaque ligne : le titre, puis ' ||| ', puis son style en un mot (punchline, question, défi, autodérision, mystère, jeu de mots ou hype).",
+    "Exemple de ligne : On tente le top 1 sans les mains ||| défi"
   ].filter(Boolean).join("\n");
 }
 
@@ -368,13 +370,31 @@ async function callAI(prompt) {
     : (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
 }
 
+/* Lit la réponse de l'IA : format « titre ||| style » ligne par ligne, avec repli sur JSON, même abîmé */
+function parseTitles(text) {
+  const clean = t => String(t).replace(/\s+/g, " ").replace(/^\s*(?:\d+\s*[.)\-:]|[-*•–])\s*/, "").replace(/^["«“'\s]+|["»”'\s,]+$/g, "").trim();
+  const out = [];
+  const push = (titre, style) => { titre = clean(titre); if (titre.length >= 4 && /\p{L}/u.test(titre) && !out.some(o => o.titre === titre)) out.push({ titre, style: clean(style || "").slice(0, 30) }); };
+  // 1) JSON valide
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a >= 0 && b > a) {
+    try { const j = JSON.parse(text.slice(a, b + 1)); (j.titres || j.titles || []).forEach(x => x && typeof x.titre === "string" && push(x.titre, x.style)); } catch (e) {}
+    // 2) JSON abîmé : on récupère chaque "titre": "…" jusqu'au champ suivant
+    if (!out.length) for (const m of text.matchAll(/"titre"\s*:\s*"([\s\S]*?)"\s*(?:,\s*"style"\s*:\s*"([^"]*)"|})/g)) push(m[1].replace(/\\"/g, '"'), m[2]);
+    if (out.length) return out;
+  }
+  // 3) Format ligne par ligne
+  const lines = text.replace(/<think>[\s\S]*?<\/think>/g, "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const piped = lines.filter(l => l.includes("|||"));
+  if (piped.length) piped.forEach(l => { const [t, s] = l.split("|||"); push(t, s); });
+  else lines.filter(l => !/:$/.test(l) && l.length <= 200).forEach(l => push(l, ""));
+  return out;
+}
+
 async function askAI(prompt) {
   const text = await callAI(prompt);
-  const a = text.indexOf("{"), b = text.lastIndexOf("}");
-  if (a < 0 || b < a) throw new Error("Réponse de l'IA illisible, réessaie.");
-  const j = JSON.parse(text.slice(a, b + 1));
-  const list = (j.titres || []).filter(x => x && typeof x.titre === "string" && x.titre.trim()).map(x => ({ titre: x.titre.trim().replace(/\s+/g, " "), style: String(x.style || "").slice(0, 30) }));
-  if (!list.length) throw new Error("L'IA n'a renvoyé aucun titre, réessaie.");
+  const list = parseTitles(text).slice(0, 10);
+  if (!list.length) throw new Error("Réponse de l'IA illisible, réessaie.");
   return list;
 }
 
@@ -467,6 +487,13 @@ document.addEventListener("error", e => { if (e.target.tagName === "IMG") e.targ
 async function init() {
   if (!TWITCH_READY) banner(`<div class="info-b"><span>Mode démo : la connexion Twitch n'est pas configurée. Ajoute ton Client ID dans <b>config.js</b> (voir le README).</span></div>`);
   else readOAuthReturn();
+  if (TWITCH_READY && location.protocol === "file:") {
+    banner(`<div class="err">Tu as ouvert le fichier directement sur ton ordinateur : la connexion Twitch ne peut pas marcher comme ça. Ouvre le site par son adresse GitHub Pages (https://…github.io/…).</div>`);
+  } else if (TWITCH_READY && !tw.token && !$("banner").innerHTML) {
+    banner(`<div class="info-b"><span>Adresse de retour à déclarer sur dev.twitch.tv (OAuth Redirect URLs), à l'identique : <b id="redir"></b></span><button class="sec" type="button" id="copyRedir">Copier</button></div>`);
+    $("redir").textContent = REDIRECT;
+    $("copyRedir").addEventListener("click", async () => { try { await navigator.clipboard.writeText(REDIRECT); toast("Adresse copiée"); } catch (e) { toast(REDIRECT); } });
+  }
   showPicked(); setApero(); engineLine(); renderAccount(); render(false);
   if (TWITCH_READY && tw.token && await validate()) {
     await loadMe(); updateSearchHint(); fillArt(); render(false);
