@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Générateur de titres de stream</title>
+<meta name="description" content="Choisis ton jeu Twitch, ton humeur ou le mode apéro : l'IA te propose des titres de live et les applique à ta chaîne.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%239146ff'/%3E%3Cpath d='M9 10h14M9 16h10M9 22h6' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <nav class="top">
+    <span class="brand">Titreur</span>
+    <div class="top-r">
+      <button class="sec" id="openSettings" type="button" aria-haspopup="dialog">Réglages IA</button>
+      <div id="account"></div>
+    </div>
+  </nav>
+
+  <header>
+    <h1>Ton titre de live, en 10 secondes</h1>
+    <p>Choisis ton jeu dans le catalogue Twitch, ton humeur du soir, active le mode apéro si le verre est servi : l'IA te propose des titres et tu les envoies sur ta chaîne en un clic.</p>
+  </header>
+
+  <div id="banner"></div>
+
+  <div class="grid">
+    <form class="card ctl" id="f" autocomplete="off">
+      <section>
+        <label class="l" for="q">Jeu ou catégorie</label>
+        <div class="combo">
+          <input type="text" id="q" role="combobox" aria-expanded="false" aria-controls="lst" aria-autocomplete="list" placeholder="Rechercher sur Twitch : Valorant, Just Chatting…">
+          <div class="list" id="lst" role="listbox"></div>
+        </div>
+        <div class="picked" id="picked" hidden>
+          <img id="pickedImg" alt="" width="39" height="52">
+          <span><b id="pickedName"></b><small id="pickedSrc"></small></span>
+          <button type="button" class="ib" id="unpick" aria-label="Retirer le jeu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <label class="chk" id="setGameWrap" hidden><input type="checkbox" id="setGame" checked> Mettre aussi ce jeu sur ma chaîne en appliquant un titre</label>
+        <p class="hint" id="searchHint"></p>
+      </section>
+
+      <section>
+        <span class="l" id="moodL">Humeur du jour <span class="mute">(jusqu'à 3)</span></span>
+        <div class="chips" id="moods" role="group" aria-labelledby="moodL"></div>
+      </section>
+
+      <section>
+        <div class="apero-box" id="aperoBox">
+          <label class="sw" for="apero"><span><b>Mode apéro</b><br><span class="hint flat">Titres plus festifs, ambiance « on trinque avec le chat »</span></span><input type="checkbox" class="tog" id="apero"></label>
+          <div class="lvl">
+            <label class="l flat" for="lvl">Niveau : <span class="lvl-name" id="lvlName"></span></label>
+            <input type="range" id="lvl" min="1" max="4" value="2">
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="row2">
+          <div><label class="l" for="lang">Langue</label><select id="lang"><option value="fr">Français</option><option value="en">Anglais</option><option value="mix">Franglais</option></select></div>
+          <div><label class="l" for="len">Longueur</label><select id="len"><option value="court">Court et percutant</option><option value="moyen" selected>Moyen</option><option value="long">Long (jusqu'à 140)</option></select></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="emo" checked> Ajouter des emojis</label>
+        <label class="l gap" for="ctx">Contexte (optionnel)</label>
+        <textarea id="ctx" maxlength="400" placeholder="Ex : objectif Diamant ce soir, premier live du jeu, sub goal à 50, invité Kevin…"></textarea>
+        <label class="l gap" for="cmd">Commandes ou tags à placer (optionnel)</label>
+        <input type="text" id="cmd" maxlength="80" placeholder="Ex : !discord !drop">
+      </section>
+
+      <button class="go" id="go" type="submit">Générer les titres</button>
+    </form>
+
+    <div>
+      <div class="now card" id="now" hidden>
+        <span class="l flat">Titre actuel de ta chaîne</span>
+        <p id="nowTitle"></p>
+        <small id="nowGame"></small>
+      </div>
+      <div class="out-head">
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" aria-selected="true" id="tabNew" type="button">Propositions</button>
+          <button class="tab" role="tab" aria-selected="false" id="tabFav" type="button">Favoris <span id="favN"></span></button>
+        </div>
+        <span class="ctx" id="ctxLine"></span>
+      </div>
+      <div id="errBox"></div>
+      <div class="titles" id="out"></div>
+      <div class="more" id="more" hidden>
+        <button class="sec" id="again" type="button">Encore 8 idées</button>
+        <button class="sec" id="crazy" type="button">Plus barré</button>
+        <button class="sec" id="sober" type="button">Plus sobre</button>
+      </div>
+      <p class="note" id="engine"></p>
+    </div>
+  </div>
+
+  <footer>Application indépendante, non affiliée à Twitch. Tes clés restent dans ton navigateur.</footer>
+</div>
+
+<dialog id="settings">
+  <form method="dialog" id="setForm">
+    <h2>Réglages de l'IA</h2>
+    <p class="hint">Ta clé est gardée uniquement dans ce navigateur et envoyée seulement au fournisseur choisi.</p>
+    <label class="l gap" for="provider">Fournisseur</label>
+    <select id="provider">
+      <option value="groq">Groq (gratuit)</option>
+      <option value="claude">Claude d'Anthropic (payant à l'usage)</option>
+    </select>
+    <label class="l gap" for="key" id="keyL">Clé API</label>
+    <input type="password" id="key" autocomplete="off" spellcheck="false">
+    <p class="hint" id="keyHint"></p>
+    <label class="l gap" for="model">Modèle</label>
+    <select id="model"></select>
+    <div class="dlg-acts">
+      <button class="sec" type="button" id="forgetKey">Effacer la clé</button>
+      <button class="go small" value="save" id="saveSet">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
