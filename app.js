@@ -1,6 +1,7 @@
 /* Générateur de titres de stream — Twitch Helix + Claude, 100 % côté navigateur */
 (() => {
 "use strict";
+const APP_VERSION = "5";
 
 /* ======================== utilitaires ======================== */
 const CFG = window.APP_CONFIG || {};
@@ -500,6 +501,7 @@ document.addEventListener("error", e => { if (e.target.tagName === "IMG") e.targ
 
 /* ======================== démarrage ======================== */
 async function init() {
+  $("ver").textContent = "Version " + APP_VERSION;
   if (!TWITCH_READY) banner(`<div class="info-b"><span>Mode démo : la connexion Twitch n'est pas configurée. Ajoute ton Client ID dans <b>config.js</b> (voir le README).</span></div>`);
   else readOAuthReturn();
   if (TWITCH_READY && location.protocol === "file:") {
