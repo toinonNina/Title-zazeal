@@ -4,7 +4,7 @@
 window.APP_CONFIG = {
   // Client ID de ton application Twitch (https://dev.twitch.tv/console/apps)
   // Ce n'est PAS un secret : il peut être public. Ne mets jamais le "Client Secret" ici.
-  TWITCH_CLIENT_ID: "yi3hyhva0u1oq9lpd56h7naoepi9ku",
+  TWITCH_CLIENT_ID: "oiwfqe2tlh3cikmn8hjltm1sov1cko",
 
   // Adresse de retour après la connexion Twitch.
   // Laisse vide : l'adresse de la page est utilisée automatiquement
