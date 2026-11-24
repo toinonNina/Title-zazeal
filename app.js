@@ -349,7 +349,10 @@ async function callAI(prompt) {
       : await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
-          body: JSON.stringify({ model, max_tokens: 2500, temperature: 1, messages: [{ role: "user", content: prompt }] })
+          body: JSON.stringify(Object.assign(
+            { model, max_completion_tokens: 4000, temperature: 1, messages: [{ role: "user", content: prompt }] },
+            /gpt-oss/.test(model) ? { reasoning_effort: "low", include_reasoning: false } : {}
+          ))
         });
   } catch (e) {
     throw new Error(`Impossible de joindre ${PROVIDERS[ai.provider].label} depuis le navigateur (réseau, bloqueur de pub ou appel refusé).`);
@@ -365,14 +368,23 @@ async function callAI(prompt) {
       : (r.status === 400 && /credit|billing/i.test(msg)) ? "Crédit API insuffisant sur ton compte."
       : "Erreur de l'IA : " + msg);
   }
-  return claude
+  const text = claude
     ? (d.content || []).filter(c => c.type === "text").map(c => c.text).join("")
     : (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
+  const finish = claude ? d.stop_reason : d.choices && d.choices[0] && d.choices[0].finish_reason;
+  if (!text.trim()) {
+    const e = new Error(finish === "length" || finish === "max_tokens"
+      ? "L'IA a manqué de place pour répondre. Réessaie, ou choisis « Llama 3.3 70B » dans « Réglages IA »."
+      : "L'IA a renvoyé une réponse vide. Réessaie, ou choisis un autre modèle dans « Réglages IA ».");
+    e.raw = JSON.stringify(d).slice(0, 1500);
+    throw e;
+  }
+  return text;
 }
 
 /* Lit la réponse de l'IA : format « titre ||| style » ligne par ligne, avec repli sur JSON, même abîmé */
 function parseTitles(text) {
-  const clean = t => String(t).replace(/\s+/g, " ").replace(/^\s*(?:\d+\s*[.)\-:]|[-*•–])\s*/, "").replace(/^["«“'\s]+|["»”'\s,]+$/g, "").trim();
+  const clean = t => String(t).replace(/\*\*|__|`/g, "").replace(/^\s*\|+|\|+\s*$/g, "").replace(/\s+/g, " ").replace(/^\s*(?:\d+\s*[.)\-:]|[-*•–])\s*/, "").replace(/^["«“'\s]+|["»”'\s,]+$/g, "").trim();
   const out = [];
   const push = (titre, style) => { titre = clean(titre); if (titre.length >= 4 && /\p{L}/u.test(titre) && !out.some(o => o.titre === titre)) out.push({ titre, style: clean(style || "").slice(0, 30) }); };
   // 1) JSON valide
@@ -394,7 +406,7 @@ function parseTitles(text) {
 async function askAI(prompt) {
   const text = await callAI(prompt);
   const list = parseTitles(text).slice(0, 10);
-  if (!list.length) throw new Error("Réponse de l'IA illisible, réessaie.");
+  if (!list.length) { const e = new Error("Réponse de l'IA illisible, réessaie."); e.raw = text.slice(0, 1500); throw e; }
   return list;
 }
 
@@ -413,7 +425,10 @@ async function generate(twist) {
   let list = null;
   if (aiKey()) {
     try { list = await askAI(buildPrompt(twist)); }
-    catch (err) { $("errBox").innerHTML = `<div class="err">${esc(err.message)} Voici des titres de secours en attendant.</div>`; }
+    catch (err) {
+      $("errBox").innerHTML = `<div class="err">${esc(err.message)} Voici des titres de secours en attendant.${err.raw ? `<details><summary>Voir la réponse brute de l'IA</summary><pre class="raw"></pre></details>` : ""}</div>`;
+      if (err.raw) $("errBox").querySelector(".raw").textContent = err.raw;
+    }
   }
   current = list || fallback();
   busy = false; $("go").disabled = false; $("go").textContent = "Générer les titres";
