@@ -112,3 +112,4 @@ dialog::backdrop{background:rgb(0 0 0/.55)}
 footer{margin-top:48px;font-size:13px;color:var(--mute)}
 @media(max-width:600px){.row2{grid-template-columns:minmax(0,1fr)}.t{grid-template-columns:minmax(0,1fr)}.acts{grid-row:auto;grid-column:1;justify-content:flex-start}}
 @media(prefers-reduced-motion:reduce){body.apero .bub,.t.new,.skel{animation:none}}
+.err details{margin-top:8px}.err summary{cursor:pointer;font-weight:600}.raw{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:220px;overflow:auto;background:var(--bg);padding:10px;border-radius:8px;margin:8px 0 0}
