@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
-<link rel="stylesheet" href="bot.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="bot.css?v=8">
 </head>
 <body>
 <div class="wrap">
@@ -26,7 +26,7 @@
 
   <header>
     <h1>Ton bot qui répond au chat</h1>
-    <p>Connecte le compte de ton bot, donne-lui une personnalité et quelques infos sur ton stream, puis lance-le. Il répond quand un viewer le mentionne, tape la commande ou répond à l'un de ses messages. Garde cette page ouverte pendant ton live.</p>
+    <p>Connecte le compte de ton bot, donne-lui une personnalité et quelques infos sur ton stream, puis lance-le. Il répond quand un viewer le mentionne, tape la commande ou répond à l'un de ses messages, et remercie les raids, follows, subs et bits. Garde cette page ouverte pendant ton live.</p>
   </header>
 
   <div id="banner"></div>
@@ -76,6 +76,24 @@
       </section>
 
       <section>
+        <span class="l">Remerciements automatiques</span>
+        <label class="chk"><input type="checkbox" id="thxRaid" checked> Raids</label>
+        <label class="chk sub"><input type="checkbox" id="raidLink" checked> Ajouter le lien de la chaîne du raider</label>
+        <label class="chk"><input type="checkbox" id="thxFollow" checked> Follows (regroupés en un seul message)</label>
+        <div class="inline sub"><label for="followCd">Au plus un message de bienvenue toutes les</label><input type="number" id="followCd" min="0" max="3600" value="60"><span>s</span></div>
+        <p class="hint">Le bot doit être modérateur de ta chaîne pour voir les follows.</p>
+        <div class="bc-box">
+          <span class="l">Subs, subs offerts et bits</span>
+          <p class="hint flat">Twitch ne montre ces événements qu'à ta chaîne : connecte une fois ton compte de streamer, en plus du bot.</p>
+          <div id="bcStatus"></div>
+          <label class="chk"><input type="checkbox" id="thxSub" checked> Subs et re-subs</label>
+          <label class="chk"><input type="checkbox" id="thxGift" checked> Subs offerts</label>
+          <div class="inline"><label class="chk"><input type="checkbox" id="thxBits" checked> Bits, à partir de</label><input type="number" id="bitsMin" min="1" max="1000000" value="100" aria-label="Nombre de bits minimum"><span>bits</span></div>
+        </div>
+        <p class="hint">Si l'IA ne répond pas, le bot envoie quand même un merci standard.</p>
+      </section>
+
+      <section>
         <span class="l">Limites anti-spam</span>
         <div class="row3">
           <div><label class="l small" for="cdUser">Délai par viewer (s)</label><input type="number" id="cdUser" min="0" max="600" value="30"></div>
@@ -104,6 +122,17 @@
             <input type="text" id="tryMsg" maxlength="300" placeholder="Écris comme un viewer : c'est quoi le planning ?">
             <button class="sec" id="tryBtn" type="button">Tester</button>
           </div>
+        </div>
+      </div>
+      <div class="card sim">
+        <span class="l">Simuler un événement (rien n'est envoyé)</span>
+        <div class="chips" id="sims">
+          <button type="button" class="chip" data-sim="raid">Raid</button>
+          <button type="button" class="chip" data-sim="follow">Follow</button>
+          <button type="button" class="chip" data-sim="sub">Sub</button>
+          <button type="button" class="chip" data-sim="resub">Re-sub</button>
+          <button type="button" class="chip" data-sim="gift">Subs offerts</button>
+          <button type="button" class="chip" data-sim="bits">Bits</button>
         </div>
       </div>
       <div class="feed-head">
@@ -141,7 +170,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="config.js?v=7"></script>
-<script src="bot.js?v=7"></script>
+<script src="config.js?v=8"></script>
+<script src="bot.js?v=8"></script>
 </body>
 </html>
