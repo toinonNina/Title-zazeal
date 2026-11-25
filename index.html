@@ -9,13 +9,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div class="wrap">
   <nav class="top">
     <span class="brand">Titreur</span>
     <div class="top-r">
+      <a class="navl on" href="./" aria-current="page">Titres</a>
+      <a class="navl" href="bot.html">Bot du chat</a>
       <button class="sec" id="openSettings" type="button" aria-haspopup="dialog">Réglages IA</button>
       <div id="account"></div>
     </div>
@@ -110,6 +112,7 @@
     <select id="provider">
       <option value="groq">Groq (gratuit)</option>
       <option value="claude">Claude d'Anthropic (payant à l'usage)</option>
+      <option value="local">IA locale sur ton PC (Ollama, LM Studio…)</option>
     </select>
     <label class="l gap" for="key" id="keyL">Clé API</label>
     <input type="password" id="key" autocomplete="off" spellcheck="false">
@@ -125,7 +128,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="config.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
