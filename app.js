@@ -1,7 +1,7 @@
 /* Générateur de titres de stream — Twitch Helix + Claude, 100 % côté navigateur */
 (() => {
 "use strict";
-const APP_VERSION = "5";
+const APP_VERSION = "7";
 
 /* ======================== utilitaires ======================== */
 const CFG = window.APP_CONFIG || {};
@@ -266,6 +266,11 @@ const PROVIDERS = {
     hint: 'Payante à l\'usage (fraction de centime par génération) : crée-la sur <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> et fixe une limite de dépense.',
     models: [["claude-haiku-5-5", "Claude Haiku 5.5 (rapide, économique)"], ["claude-sonnet-5-5", "Claude Sonnet 5.5 (plus créatif)"]],
     def: CFG.CLAUDE_MODEL || "claude-haiku-5-5"
+  },
+  local: {
+    label: "IA locale", keyLabel: "Adresse de ton serveur d'IA local", placeholder: "http://localhost:11434/v1", local: true,
+    hint: "Ollama : http://localhost:11434/v1 · LM Studio : http://localhost:1234/v1. Le site doit être autorisé côté serveur (voir le README).",
+    models: [], def: CFG.LOCAL_MODEL || ""
   }
 };
 const ai = {
@@ -275,17 +280,64 @@ const ai = {
 };
 if (!PROVIDERS[ai.provider]) ai.provider = "groq";
 { const legacy = store.get("tt-key", ""); if (legacy && !ai.keys.claude) { ai.keys.claude = legacy; store.set("tt-keys", ai.keys); store.del("tt-key"); } }
-const aiKey = () => (ai.keys[ai.provider] || "").trim();
+const aiKey = () => ai.provider === "local" ? (ai.keys.local && ai.models.local ? ai.keys.local : "") : (ai.keys[ai.provider] || "").trim();
 const aiModel = () => ai.models[ai.provider] || PROVIDERS[ai.provider].def;
 const dlg = $("settings");
 function fillProvider(p) {
   const P = PROVIDERS[p];
   $("keyL").textContent = P.keyLabel; $("key").placeholder = P.placeholder; $("keyHint").innerHTML = P.hint;
-  $("key").value = ai.keys[p] || "";
+  $("key").type = P.local ? "text" : "password";
+  $("key").value = ai.keys[p] || (P.local ? (CFG.LOCAL_URL || "http://localhost:11434/v1") : "");
+  $("forgetKey").textContent = P.local ? "Effacer l'adresse" : "Effacer la clé";
   const sel = $("model"), cur = ai.models[p] || P.def;
+  if (P.local) { loadLocalModels(); return; }
   sel.innerHTML = P.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("");
   if (!P.models.some(m => m[0] === cur)) sel.add(new Option(cur, cur));
   sel.value = cur;
+}
+/* IA locale (Ollama, LM Studio…) : API compatible OpenAI sur ton PC */
+const localBase = u => String(u || "").trim().replace(/\/+$/, "").replace(/\/chat\/completions$/, "");
+let localSeq = 0;
+async function loadLocalModels() {
+  const sel = $("model"), base = localBase($("key").value), seq = ++localSeq;
+  sel.innerHTML = '<option value="">Recherche des modèles…</option>';
+  try {
+    const r = await fetch(base + "/models");
+    const d = await r.json();
+    const ids = (d.data || []).map(m => m && m.id).filter(Boolean);
+    if (seq !== localSeq) return;
+    if (!ids.length) throw new Error("vide");
+    sel.innerHTML = ids.map(i => `<option value="${esc(i)}">${esc(i)}</option>`).join("");
+    if (ai.models.local && ids.includes(ai.models.local)) sel.value = ai.models.local;
+    $("keyHint").textContent = `Connecté à ton IA locale : ${ids.length} modèle${ids.length > 1 ? "s" : ""} trouvé${ids.length > 1 ? "s" : ""}.`;
+  } catch (e) {
+    if (seq !== localSeq) return;
+    sel.innerHTML = '<option value="">Aucun modèle trouvé</option>';
+    $("keyHint").innerHTML = "Pas de réponse de ton IA locale. Vérifie qu'Ollama ou LM Studio est lancé avec au moins un modèle, que le site est autorisé (CORS, voir le README), et accepte l'« accès au réseau local » si ton navigateur le demande.";
+  }
+}
+{ let t; $("key").addEventListener("input", () => { if ($("provider").value !== "local") return; clearTimeout(t); t = setTimeout(loadLocalModels, 500); }); }
+async function callLocal(messages, maxTok) {
+  const base = localBase(ai.keys.local), model = ai.models.local;
+  if (!model) throw new Error("Choisis un modèle local dans « Réglages IA ».");
+  let r;
+  try {
+    r = await fetch(base + "/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ model, messages, temperature: 0.9, max_tokens: maxTok, stream: false }, /gpt-oss/.test(model) ? { reasoning_effort: "low" } : {}))
+    });
+  } catch (e) {
+    const er = new Error(`Impossible de joindre ton IA locale (${base}). Vérifie qu'elle est lancée, que le site est autorisé (CORS) et que l'accès au réseau local est accepté dans le navigateur.`);
+    er.retry = 15; throw er;
+  }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = d.error ? (typeof d.error === "string" ? d.error : d.error.message) : "HTTP " + r.status;
+    const er = new Error(r.status === 404 ? `Modèle « ${model} » introuvable sur ton IA locale : choisis-en un autre dans « Réglages IA ».` : "Erreur de l'IA locale : " + msg);
+    er.retry = 10; throw er;
+  }
+  const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
+  return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 }
 function openSettings() {
   $("provider").value = ai.provider; fillProvider(ai.provider);
@@ -297,7 +349,7 @@ $("setForm").addEventListener("submit", () => {
   const p = $("provider").value;
   ai.provider = p; ai.keys[p] = $("key").value.trim(); ai.models[p] = $("model").value;
   store.set("tt-provider", p); store.set("tt-keys", ai.keys); store.set("tt-models", ai.models);
-  engineLine(); toast(aiKey() ? `${PROVIDERS[p].label} activé` : "Aucune clé : titres de secours");
+  engineLine(); toast(aiKey() ? `${PROVIDERS[p].label} activé` : p === "local" ? "Choisis un modèle local" : "Aucune clé : titres de secours");
 });
 $("forgetKey").addEventListener("click", () => { const p = $("provider").value; delete ai.keys[p]; $("key").value = ""; store.set("tt-keys", ai.keys); engineLine(); toast("Clé effacée de ce navigateur"); });
 function engineLine() {
@@ -338,6 +390,11 @@ function buildPrompt(twist) {
 }
 
 async function callAI(prompt) {
+  if (ai.provider === "local") {
+    const t = await callLocal([{ role: "user", content: prompt }], 3000);
+    if (!t) throw new Error("Ton IA locale a renvoyé une réponse vide. Réessaie, ou choisis un autre modèle dans « Réglages IA ».");
+    return t;
+  }
   const key = aiKey(), model = aiModel(), claude = ai.provider === "claude";
   let r;
   try {
