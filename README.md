@@ -76,7 +76,7 @@ Sans clé, l'application marche quand même, avec des titres de secours plus sim
 
 ## Le bot qui répond au chat (`bot.html`)
 
-Une deuxième page du site, `https://TONPSEUDO.github.io/NOM-DU-DEPOT/bot.html`, fait tourner un bot qui **répond à ton chat avec l'IA**. Il ne fait pas de modération : laisse Wizebot s'en occuper. Il fonctionne tant que la page est ouverte : lance-le au début du live, dans un onglet de ton navigateur.
+Une deuxième page du site, `https://TONPSEUDO.github.io/NOM-DU-DEPOT/bot.html`, fait tourner un bot qui **répond à ton chat avec l'IA** et **remercie les raids, follows, subs et bits**. Il ne fait pas de modération : laisse Wizebot s'en occuper. Il fonctionne tant que la page est ouverte : lance-le au début du live, dans un onglet de ton navigateur.
 
 ### Installation (5 minutes)
 
@@ -98,6 +98,25 @@ La clé d'IA (Groq ou Claude) est la même que pour le générateur de titres : 
 - Avec des surnoms que tu choisis (optionnel)
 
 Il ignore les autres bots (Wizebot, StreamElements, Nightbot…) et toutes les commandes en `!` qui ne sont pas les siennes, pour ne pas interférer avec Wizebot.
+
+### Remerciements automatiques (raids, follows, subs, bits)
+
+Le bot remercie avec un message écrit par l'IA, dans sa personnalité et adapté au jeu en cours :
+
+| Événement | Ce qu'il faut | Détails |
+|---|---|---|
+| **Raid** | Rien de plus | Il cite le jeu que le raider streamait et peut ajouter le lien de sa chaîne. |
+| **Follow** | Le bot doit être **modérateur** | Les follows arrivés ensemble sont regroupés en un seul message (au plus un toutes les 60 s, réglable). Plus de 10 follows d'un coup ressemblent à une vague de faux comptes : pas de message. |
+| **Sub, re-sub, subs offerts** | **Connecter ta chaîne** | Pour un re-sub, il reprend le nombre de mois et le message du viewer. Pour des subs offerts, il remercie celui qui offre, pas chaque personne qui reçoit. |
+| **Bits** | **Connecter ta chaîne** | À partir d'un seuil que tu choisis (100 bits par défaut). |
+
+**Connecter ta chaîne :** Twitch ne montre les subs et les bits qu'au compte de la chaîne elle-même. Dans la section *Remerciements automatiques*, clique sur **Connecter ma chaîne (compte streamer)** et connecte-toi avec **ton** compte, pas celui du bot. Ça ne donne au site que le droit de *voir* tes subs et tes bits.
+
+**Tu avais déjà connecté le bot avant cette version ?** Il lui faut une nouvelle permission pour voir les follows : la page te propose de le **reconnecter**, en un clic.
+
+**Si l'IA ne répond pas** (quota Groq atteint, panne…), le bot envoie quand même un merci standard : personne n'est oublié.
+
+**Pour régler sans attendre un vrai raid :** les boutons **Simuler un événement** (Raid, Follow, Sub, Re-sub, Subs offerts, Bits) montrent dans le fil ce que le bot écrirait, sans rien envoyer.
 
 ### Anti-spam
 
@@ -184,6 +203,8 @@ Si la liste des modèles reste vide, vérifie dans l'ordre : Ollama ou LM Studio
 | « Permission manquante » en appliquant | Déconnecte-toi puis reconnecte-toi pour accorder à nouveau la permission. |
 | Le bot ne répond pas dans le chat | Vérifie que le statut est « En ligne » et pas « Mode test », que le viewer l'a bien mentionné ou a tapé la commande, et que le bot est modérateur de la chaîne. |
 | « Twitch limite l'envoi de messages » | Fais du bot un modérateur (`/mod TonPseudoBot`). |
+| Pas de remerciement pour les follows | Le bot doit être modérateur, et reconnecté depuis la version 8 (bouton « Reconnecter le bot »). |
+| Pas de remerciement pour les subs ou les bits | Connecte ta chaîne (compte streamer) dans la section *Remerciements automatiques*, puis relance le bot. |
 
 ## Tester en local (facultatif)
 
