@@ -33,9 +33,22 @@ input[type=number]{width:100%;font:16px Inter,sans-serif;color:var(--ink);backgr
 .feed .bot{background:color-mix(in srgb,var(--acc) 16%,transparent);border-left:3px solid var(--acc)}
 .feed .bot b{color:var(--acc)}
 .feed .bot .tag{font-size:12px;color:var(--mute);margin-left:6px}
+.feed .evt{background:color-mix(in srgb,var(--mint) 14%,transparent);border-left:3px solid var(--mint);font-weight:500}
 .feed .sys{color:var(--mute);font-size:13px;font-style:italic}
 .feed .ferr{color:var(--bad);font-size:14px}
 body.hide-chat .feed .chat{display:none}
 @media(max-width:600px){.row3{grid-template-columns:minmax(0,1fr)}.tryrow{flex-direction:column}}
 @media(prefers-reduced-motion:reduce){.pill[data-s=wait]::before{animation:none}}
 @media(max-width:900px){.grid>div{order:-1}}
+.chk.sub,.inline.sub{margin-left:30px}
+.inline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:15px;min-height:44px}
+.inline input[type=number]{width:96px}
+.inline .chk{min-height:44px}
+.bc-box{margin-top:12px;padding:14px;border-radius:14px;background:var(--soft)}
+#bcStatus{margin:10px 0 4px}
+.bc-on{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-weight:600;font-size:15px}
+.bc-on span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mint);margin-right:8px}
+.bc-on.bad{color:var(--bad)}.bc-on.bad span::before{background:var(--bad)}
+.sim{margin-bottom:16px;padding:16px 18px}
+.sim .chip{min-height:40px;padding:7px 13px;font-size:14px}
+.sim .chip:disabled{opacity:.5;cursor:wait}
