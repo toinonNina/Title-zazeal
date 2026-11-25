@@ -1,14 +1,13 @@
 /* Bot de chat IA pour Twitch — EventSub WebSocket + Helix + Groq/Claude, 100 % navigateur */
 (() => {
 "use strict";
-const APP_VERSION = "7";
+const APP_VERSION = "8";
 
 /* ======================== utilitaires ======================== */
 const CFG = window.APP_CONFIG || {};
 const CID = (CFG.TWITCH_CLIENT_ID || "").trim();
 const TWITCH_READY = CID && !/^COLLE/i.test(CID);
 const REDIRECT = (CFG.BOT_REDIRECT_URI || "").trim() || (location.origin + location.pathname);
-const SCOPES = "user:read:chat user:write:chat";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const safeUrl = u => (typeof u === "string" && u.startsWith("https://")) ? u : "";
@@ -50,7 +49,7 @@ const PERSOS = [
   ["hype", "Chauffeur de salle", "Tu es un chauffeur de salle enthousiaste : tu mets l'ambiance, tu encourages le streamer et le chat, énergie positive."],
   ["custom", "Personnalisée", ""]
 ];
-const FIELDS = ["channel", "trigMention", "trigReply", "trigCmd", "cmd", "names", "access", "botName", "persoCustom", "len", "info", "cdUser", "cdGlobal", "perMin", "ignore", "testMode"];
+const FIELDS = ["channel", "trigMention", "trigReply", "trigCmd", "cmd", "names", "access", "botName", "persoCustom", "len", "info", "cdUser", "cdGlobal", "perMin", "ignore", "testMode", "thxRaid", "raidLink", "thxFollow", "followCd", "thxSub", "thxGift", "thxBits", "bitsMin"];
 const saved = store.get("tb-settings", {});
 FIELDS.forEach(id => {
   const el = $(id);
@@ -203,12 +202,17 @@ async function aiChat(system, user, maxChars) {
   return text;
 }
 
-/* ======================== Twitch : connexion ======================== */
-const tw = { token: store.get("tb-token", null), me: null, chan: null, stream: null };
-function twitchLogin() {
-  const state = crypto.getRandomValues(new Uint32Array(4)).join("-");
+/* ======================== Twitch : connexions ======================== */
+// Deux comptes : le bot (chat, follows, raids) et, en option, ta chaîne (subs, subs offerts, bits),
+// car Twitch ne montre ces événements qu'au compte de la chaîne elle-même.
+const BOT_SCOPES = "user:read:chat user:write:chat moderator:read:followers";
+const BC_SCOPES = "channel:read:subscriptions bits:read";
+const tw = { token: store.get("tb-token", null), btoken: store.get("tb-btoken", null), me: null, bc: null, chan: null, stream: null, followScope: true };
+function twitchLogin(kind) {
+  kind = kind === "bc" ? "bc" : "bot";
+  const state = kind + "-" + crypto.getRandomValues(new Uint32Array(4)).join("-");
   try { sessionStorage.setItem("tb-state", state); } catch (e) {}
-  const p = new URLSearchParams({ client_id: CID, redirect_uri: REDIRECT, response_type: "token", scope: SCOPES, state, force_verify: "true" });
+  const p = new URLSearchParams({ client_id: CID, redirect_uri: REDIRECT, response_type: "token", scope: kind === "bc" ? BC_SCOPES : BOT_SCOPES, state, force_verify: "true" });
   location.href = "https://id.twitch.tv/oauth2/authorize?" + p;
 }
 function readOAuthReturn() {
@@ -222,29 +226,53 @@ function readOAuthReturn() {
   let expected = null; try { expected = sessionStorage.getItem("tb-state"); sessionStorage.removeItem("tb-state"); } catch (e) {}
   history.replaceState(null, "", location.pathname + location.search);
   if (!expected || h.get("state") !== expected) { banner(`<div class="err">Réponse de connexion Twitch invalide. Réessaie.</div>`); return; }
-  tw.token = h.get("access_token"); store.set("tb-token", tw.token);
+  const token = h.get("access_token");
+  if (expected.startsWith("bc-")) { tw.btoken = token; store.set("tb-btoken", token); toast("Ta chaîne est connectée pour les subs et les bits"); }
+  else { tw.token = token; store.set("tb-token", token); }
 }
 function clearSession(reason) {
   if (running) stopBot();
   tw.token = null; tw.me = null; store.del("tb-token"); renderAccount(); updateStatus();
   if (reason) banner(`<div class="err">${esc(reason)}</div>`);
 }
+function clearBc(reason) {
+  tw.btoken = null; tw.bc = null; store.del("tb-btoken"); renderBc();
+  if (reason) log("ferr", "", reason);
+}
+async function validateToken(token) {
+  try {
+    const r = await fetch("https://id.twitch.tv/oauth2/validate", { headers: { Authorization: "OAuth " + token } });
+    if (r.status === 401) return { expired: true };
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
 async function validate() {
   if (!tw.token) return false;
-  try {
-    const r = await fetch("https://id.twitch.tv/oauth2/validate", { headers: { Authorization: "OAuth " + tw.token } });
-    if (r.status === 401) { clearSession("La session Twitch du bot a expiré : reconnecte-le."); return false; }
-    if (!r.ok) return !!tw.me;
-    const d = await r.json();
-    const scopes = d.scopes || [];
-    if (!scopes.includes("user:read:chat") || !scopes.includes("user:write:chat")) { clearSession("Il manque des permissions : reconnecte le bot."); return false; }
-    if (!tw.me || tw.me.id !== d.user_id) tw.me = { id: d.user_id, login: d.login, name: d.login, img: "" };
-    return true;
-  } catch (e) { return !!tw.me; }
+  const d = await validateToken(tw.token);
+  if (d && d.expired) { clearSession("La session Twitch du bot a expiré : reconnecte-le."); return false; }
+  if (!d) return !!tw.me;
+  const scopes = d.scopes || [];
+  if (!scopes.includes("user:read:chat") || !scopes.includes("user:write:chat")) { clearSession("Il manque des permissions : reconnecte le bot."); return false; }
+  tw.followScope = scopes.includes("moderator:read:followers");
+  if (!tw.me || tw.me.id !== d.user_id) tw.me = { id: d.user_id, login: d.login, name: d.login, img: "" };
+  return true;
+}
+async function validateBc() {
+  if (!tw.btoken) return false;
+  const d = await validateToken(tw.btoken);
+  if (d && d.expired) { clearBc("La connexion de ta chaîne (subs et bits) a expiré : reconnecte-la."); return false; }
+  if (!d) return !!tw.bc;
+  tw.bc = { id: d.user_id, login: d.login, scopes: d.scopes || [] };
+  renderBc(); return true;
 }
 async function helix(path, opts = {}) {
-  const r = await fetch("https://api.twitch.tv/helix/" + path, { ...opts, headers: { "Authorization": "Bearer " + tw.token, "Client-Id": CID, ...(opts.body ? { "Content-Type": "application/json" } : {}) } });
-  if (r.status === 401) { clearSession("La session Twitch du bot a expiré : reconnecte-le."); throw new Error("401"); }
+  const token = opts.token || tw.token;
+  const r = await fetch("https://api.twitch.tv/helix/" + path, { method: opts.method || "GET", body: opts.body, headers: { "Authorization": "Bearer " + token, "Client-Id": CID, ...(opts.body ? { "Content-Type": "application/json" } : {}) } });
+  if (r.status === 401) {
+    if (token === tw.btoken && token !== tw.token) clearBc("La connexion de ta chaîne (subs et bits) a expiré : reconnecte-la.");
+    else clearSession("La session Twitch du bot a expiré : reconnecte-le.");
+    throw new Error("401");
+  }
   if (r.status === 204) return null;
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(d.message || ("Erreur Twitch " + r.status)); e.status = r.status; throw e; }
@@ -253,13 +281,10 @@ async function helix(path, opts = {}) {
 async function loadMe() {
   try { const u = await helix("users?id=" + encodeURIComponent(tw.me.id)); const d = u.data && u.data[0]; if (d) tw.me = { id: d.id, login: d.login, name: d.display_name || d.login, img: safeUrl(d.profile_image_url) }; } catch (e) {}
   if (!$("botName").value) { $("botName").value = tw.me.name; saveSettings(); }
-  renderAccount(); updateStatus();
+  renderAccount(); updateStatus(); followScopeHint();
 }
-async function logout() {
-  const t = tw.token; clearSession();
-  if (t) { try { await fetch("https://id.twitch.tv/oauth2/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: CID, token: t }) }); } catch (e) {} }
-  toast("Bot déconnecté de Twitch");
-}
+async function revoke(t) { try { await fetch("https://id.twitch.tv/oauth2/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: CID, token: t }) }); } catch (e) {} }
+async function logout() { const t = tw.token; clearSession(); if (t) await revoke(t); toast("Bot déconnecté de Twitch"); }
 function renderAccount() {
   const a = $("account");
   if (!TWITCH_READY) { a.innerHTML = ""; return; }
@@ -269,12 +294,34 @@ function renderAccount() {
     $("logout").addEventListener("click", logout);
   } else {
     a.innerHTML = `<button class="twitch" type="button" id="login"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 3 3 7v12h4v2h3l2-2h3l5-5V3H4zm14 10-3 3h-3l-2 2v-2H7V5h11v8zm-3-5h-2v4h2V8zm-4 0H9v4h2V8z"/></svg>Connecter le compte du bot</button>`;
-    $("login").addEventListener("click", twitchLogin);
+    $("login").addEventListener("click", () => twitchLogin("bot"));
   }
 }
+function renderBc() {
+  const box = $("bcStatus"); if (!box) return;
+  if (!TWITCH_READY) { box.innerHTML = ""; return; }
+  if (tw.bc) {
+    const wrong = tw.chan && tw.bc.id !== tw.chan.id;
+    box.innerHTML = `<div class="bc-on${wrong ? " bad" : ""}"><span></span><button class="sec" type="button" id="bcOut">Déconnecter</button></div>`;
+    box.querySelector("span").textContent = wrong ? `Compte connecté : ${tw.bc.login}, ce n'est pas la chaîne ${tw.chan.name}. Reconnecte avec le bon compte.` : `Chaîne connectée : ${tw.bc.login}`;
+    $("bcOut").addEventListener("click", async () => { const t = tw.btoken; clearBc(); if (t) await revoke(t); toast("Chaîne déconnectée"); });
+  } else {
+    box.innerHTML = `<button class="sec" type="button" id="bcIn">Connecter ma chaîne (compte streamer)</button>`;
+    $("bcIn").addEventListener("click", () => {
+      if (running) { toast("Arrête le bot avant de connecter ta chaîne"); return; }
+      twitchLogin("bc");
+    });
+  }
+}
+function followScopeHint() {
+  if (!tw.me || tw.followScope || !$("thxFollow").checked || $("banner").innerHTML) return;
+  banner(`<div class="info-b"><span>Pour remercier les follows, le bot a besoin d'une nouvelle permission : reconnecte-le une fois.</span><button class="sec" type="button" id="reBot">Reconnecter le bot</button></div>`);
+  $("reBot").addEventListener("click", () => twitchLogin("bot"));
+}
 
-/* ======================== Twitch : chat en direct (EventSub WebSocket) ======================== */
-let running = false, ws = null, kaTimer = null, kaSec = 30, retries = 0, streamTimer = null, validateTimer = null;
+/* ======================== Twitch : événements en direct (EventSub WebSocket) ======================== */
+let running = false, streamTimer = null, validateTimer = null;
+const conns = [];
 async function resolveChannel() {
   const login = ($("channel").value.trim().replace(/^@/, "") || tw.me.login).toLowerCase();
   const u = await helix("users?login=" + encodeURIComponent(login));
@@ -285,59 +332,182 @@ async function resolveChannel() {
 async function loadStream() {
   try { const c = await helix("channels?broadcaster_id=" + encodeURIComponent(tw.chan.id)); const d = c.data && c.data[0]; if (d) tw.stream = { title: d.title, game: d.game_name }; } catch (e) {}
 }
-function resetKeepalive() {
-  clearTimeout(kaTimer);
-  kaTimer = setTimeout(() => { if (!running) return; log("sys", "", "Connexion au chat perdue, reconnexion…"); const old = ws; ws = null; try { old && old.close(); } catch (e) {} openSocket(); }, (kaSec + 10) * 1000);
-}
-function openSocket(url, isReconnect) {
-  const sock = new WebSocket(url || "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30");
-  if (!isReconnect) ws = sock;
-  sock.onmessage = ev => {
-    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-    const type = m.metadata && m.metadata.message_type;
-    if (type === "session_welcome") {
-      kaSec = (m.payload.session.keepalive_timeout_seconds) || 30;
-      if (isReconnect) { const old = ws; ws = sock; try { old && old.close(); } catch (e) {} resetKeepalive(); }
-      else subscribe(m.payload.session.id);
-    } else if (sock !== ws) {
-      return;
-    } else if (type === "session_keepalive") {
-      resetKeepalive();
-    } else if (type === "notification") {
-      resetKeepalive();
-      if (m.payload.subscription.type === "channel.chat.message") onChat(m.payload.event);
-    } else if (type === "session_reconnect") {
-      openSocket(m.payload.session.reconnect_url, true);
-    } else if (type === "revocation") {
-      const st = m.payload.subscription.status;
-      log("ferr", "", st === "authorization_revoked" ? "Twitch a retiré l'autorisation du bot : reconnecte-le." : st === "user_removed" ? "Le compte du bot ou la chaîne n'existe plus." : "Abonnement au chat révoqué (" + st + ").");
-      stopBot("err");
-    }
-  };
-  sock.onclose = () => {
-    if (sock !== ws || !running) return;
-    clearTimeout(kaTimer); ws = null;
-    const wait = Math.min(60, 2 ** retries++) * 1000;
-    log("sys", "", `Déconnecté du chat, nouvelle tentative dans ${Math.round(wait / 1000)} s…`);
-    setStatus("wait", "Reconnexion…");
-    setTimeout(() => { if (running && !ws) openSocket(); }, wait);
-  };
-}
-async function subscribe(sessionId) {
-  try {
-    await helix("eventsub/subscriptions", { method: "POST", body: JSON.stringify({
-      type: "channel.chat.message", version: "1",
-      condition: { broadcaster_user_id: tw.chan.id, user_id: tw.me.id },
-      transport: { method: "websocket", session_id: sessionId }
-    }) });
-    retries = 0; resetKeepalive();
-    log("sys", "", `Connecté au chat de ${tw.chan.name}. ${$("testMode").checked ? "Mode test : rien ne sera envoyé." : "Le bot répond en direct."}`);
-    updateStatus();
-  } catch (e) {
-    if (e.message === "401") return;
-    log("ferr", "", e.status === 403 ? `Twitch refuse l'accès au chat de ${tw.chan.name} (bot banni de la chaîne ?).` : "Abonnement au chat impossible : " + e.message);
-    stopBot("err");
+function botSubs() {
+  const l = [{
+    type: "channel.chat.message", version: "1", required: true,
+    condition: { broadcaster_user_id: tw.chan.id, user_id: tw.me.id },
+    fail: e => e.status === 403 ? `Twitch refuse l'accès au chat de ${tw.chan.name} (bot banni de la chaîne ?).` : "Abonnement au chat impossible : " + e.message
+  }];
+  if ($("thxFollow").checked) {
+    if (!tw.followScope) log("ferr", "", "Follows : reconnecte le bot pour lui donner la permission de voir les follows.");
+    else l.push({ type: "channel.follow", version: "2", label: "follows",
+      condition: { broadcaster_user_id: tw.chan.id, moderator_user_id: tw.me.id },
+      fail: e => e.status === 403 ? `Follows : le bot doit être modérateur de ta chaîne (tape /mod ${tw.me.login} dans ton chat).` : "Follows indisponibles : " + e.message });
   }
+  if ($("thxRaid").checked) l.push({ type: "channel.raid", version: "1", label: "raids", condition: { to_broadcaster_user_id: tw.chan.id }, fail: e => "Raids indisponibles : " + e.message });
+  return l;
+}
+function bcSubs() {
+  if (!tw.bc || !tw.chan || tw.bc.id !== tw.chan.id) return [];
+  const sc = tw.bc.scopes || [], c = { broadcaster_user_id: tw.chan.id }, l = [];
+  const subOk = sc.includes("channel:read:subscriptions");
+  if ($("thxSub").checked && subOk) {
+    l.push({ type: "channel.subscribe", version: "1", label: "subs", condition: c, fail: e => "Subs indisponibles : " + e.message });
+    l.push({ type: "channel.subscription.message", version: "1", label: "re-subs", condition: c, fail: e => "Re-subs indisponibles : " + e.message });
+  }
+  if ($("thxGift").checked && subOk) l.push({ type: "channel.subscription.gift", version: "1", label: "subs offerts", condition: c, fail: e => "Subs offerts indisponibles : " + e.message });
+  if ($("thxBits").checked && sc.includes("bits:read")) l.push({ type: "channel.cheer", version: "1", label: "bits", condition: c, fail: e => "Bits indisponibles : " + e.message });
+  return l;
+}
+function makeConn(label, token, subsFn, critical) {
+  const c = { ws: null, ka: null, kaSec: 30, retries: 0, alive: true };
+  const resetKa = () => {
+    clearTimeout(c.ka);
+    c.ka = setTimeout(() => { if (!running || !c.alive) return; log("sys", "", `Connexion ${label} perdue, reconnexion…`); const old = c.ws; c.ws = null; try { old && old.close(); } catch (e) {} open(); }, (c.kaSec + 10) * 1000);
+  };
+  async function subscribeAll(sessionId) {
+    const ok = [];
+    for (const s of subsFn()) {
+      try {
+        await helix("eventsub/subscriptions", { method: "POST", token, body: JSON.stringify({ type: s.type, version: s.version, condition: s.condition, transport: { method: "websocket", session_id: sessionId } }) });
+        if (s.label) ok.push(s.label);
+      } catch (e) {
+        if (e.message === "401") return;
+        log("ferr", "", s.fail(e));
+        if (s.required) { stopBot("err"); return; }
+      }
+    }
+    c.retries = 0; resetKa();
+    if (critical) {
+      log("sys", "", `Connecté au chat de ${tw.chan.name}${ok.length ? " (remerciements : " + ok.join(", ") + ")" : ""}. ${$("testMode").checked ? "Mode test : rien ne sera envoyé." : "Le bot répond en direct."}`);
+      updateStatus();
+    } else if (ok.length) log("sys", "", `Ta chaîne est suivie pour les remerciements : ${ok.join(", ")}.`);
+    else c.stop();
+  }
+  function open(url, isReconnect) {
+    const sock = new WebSocket(url || "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30");
+    if (!isReconnect) c.ws = sock;
+    sock.onmessage = ev => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      const type = m.metadata && m.metadata.message_type;
+      if (type === "session_welcome") {
+        c.kaSec = m.payload.session.keepalive_timeout_seconds || 30;
+        if (isReconnect) { const old = c.ws; c.ws = sock; try { old && old.close(); } catch (e) {} resetKa(); }
+        else subscribeAll(m.payload.session.id);
+      } else if (sock !== c.ws) {
+        return;
+      } else if (type === "session_keepalive") {
+        resetKa();
+      } else if (type === "notification") {
+        resetKa(); dispatch(m.payload.subscription.type, m.payload.event);
+      } else if (type === "session_reconnect") {
+        open(m.payload.session.reconnect_url, true);
+      } else if (type === "revocation") {
+        const sub = m.payload.subscription, st = sub.status;
+        log("ferr", "", st === "authorization_revoked" ? `Twitch a retiré une autorisation (${label}) : reconnecte le compte concerné.` : st === "user_removed" ? "Un des comptes n'existe plus." : `Abonnement ${sub.type} révoqué (${st}).`);
+        if (sub.type === "channel.chat.message") stopBot("err");
+      }
+    };
+    sock.onclose = () => {
+      if (sock !== c.ws || !running || !c.alive) return;
+      clearTimeout(c.ka); c.ws = null;
+      const wait = Math.min(60, 2 ** c.retries++) * 1000;
+      log("sys", "", `Connexion ${label} coupée, nouvelle tentative dans ${Math.round(wait / 1000)} s…`);
+      if (critical) setStatus("wait", "Reconnexion…");
+      setTimeout(() => { if (running && c.alive && !c.ws) open(); }, wait);
+    };
+  }
+  c.start = () => open();
+  c.stop = () => { c.alive = false; clearTimeout(c.ka); const s = c.ws; c.ws = null; try { s && s.close(); } catch (e) {} };
+  return c;
+}
+function dispatch(type, ev) {
+  if (type === "channel.chat.message") onChat(ev); else onEvent(type, ev);
+}
+
+/* ======================== remerciements ======================== */
+let followBuf = [], followTimer = null, lastFollowMsg = 0, thanks = 0;
+const tierTxt = t => t === "2000" ? " (palier 2)" : t === "3000" ? " (palier 3)" : "";
+const plural = (n, w) => `${n} ${w}${n > 1 ? "s" : ""}`;
+const cleanCheer = s => String(s || "").replace(/\b[a-z]+\d+\b/gi, "").replace(/\s+/g, " ").trim();
+function onEvent(type, ev) {
+  if (type === "channel.raid") {
+    const n = ev.from_broadcaster_user_name || ev.from_broadcaster_user_login;
+    log("evt", "", `Raid de ${n} avec ${plural(ev.viewers, "viewer")} !`);
+    thank({ type: "raid", name: n, login: ev.from_broadcaster_user_login, id: ev.from_broadcaster_user_id, viewers: ev.viewers }, true);
+  } else if (type === "channel.follow") {
+    const n = ev.user_name || ev.user_login;
+    log("evt", "", `Nouveau follow : ${n}`);
+    queueFollow(n);
+  } else if (type === "channel.subscribe") {
+    if (ev.is_gift) return; // remercié via l'offreur (subs offerts)
+    log("evt", "", `Nouveau sub : ${ev.user_name}${tierTxt(ev.tier)}`);
+    thank({ type: "sub", name: ev.user_name, tier: ev.tier }, true);
+  } else if (type === "channel.subscription.message") {
+    const months = ev.cumulative_months || ev.duration_months || 0;
+    log("evt", "", `Re-sub : ${ev.user_name}${months ? ", " + months + " mois" : ""}`);
+    thank({ type: "resub", name: ev.user_name, months, tier: ev.tier, message: ev.message && ev.message.text }, true);
+  } else if (type === "channel.subscription.gift") {
+    const n = ev.is_anonymous ? null : ev.user_name;
+    log("evt", "", `${n || "Anonyme"} offre ${plural(ev.total, "sub")}${tierTxt(ev.tier)}`);
+    thank({ type: "gift", name: n, total: ev.total, cumulative: ev.cumulative_total, tier: ev.tier }, true);
+  } else if (type === "channel.cheer") {
+    const n = ev.is_anonymous ? null : ev.user_name;
+    log("evt", "", `${n || "Anonyme"} envoie ${ev.bits} bits`);
+    if (ev.bits < num("bitsMin", 100, 1, 1000000)) { log("sys", "", `Moins de ${num("bitsMin", 100, 1, 1000000)} bits : pas de message (réglage).`); return; }
+    thank({ type: "bits", name: n, bits: ev.bits, message: cleanCheer(ev.message) }, true);
+  }
+}
+function queueFollow(n) {
+  followBuf.push(n);
+  if (followTimer) return;
+  const wait = Math.max(15000, lastFollowMsg + num("followCd", 60, 0, 3600) * 1000 - Date.now());
+  followTimer = setTimeout(() => {
+    followTimer = null;
+    const names = [...new Set(followBuf.splice(0))];
+    if (!names.length || !running) return;
+    if (names.length > 10) { log("ferr", "", `${names.length} follows d'un coup : possible vague de faux comptes, pas de message de bienvenue.`); return; }
+    lastFollowMsg = Date.now();
+    thank({ type: "follow", names }, true);
+  }, wait);
+}
+async function thank(e, live) {
+  if (e.type === "raid" && e.id && tw.token) {
+    try { const c = await helix("channels?broadcaster_id=" + encodeURIComponent(e.id)); const d = c && c.data && c.data[0]; if (d && d.game_name) e.game = d.game_name; } catch (er) {}
+  }
+  enqueue({ event: e, name: e.name || (e.names ? e.names.join(", ") : "anonyme"), live }, true);
+}
+function eventDesc(e) {
+  const who = e.name || "un viewer anonyme";
+  switch (e.type) {
+    case "raid": return `${who} vient de faire un raid sur la chaîne avec ${plural(e.viewers, "viewer")}${e.game ? ` (il streamait ${e.game})` : ""}. Remercie-le et souhaite la bienvenue à ses viewers.`;
+    case "follow": return `${e.names.join(", ")} ${e.names.length > 1 ? "viennent" : "vient"} de suivre la chaîne. Souhaite la bienvenue.`;
+    case "sub": return `${who} vient de s'abonner${tierTxt(e.tier)}. Remercie-le.`;
+    case "resub": return `${who} se réabonne${e.months ? `, ${e.months} mois de soutien au total` : ""}${e.message ? ` ; son message : « ${e.message.slice(0, 200)} »` : ""}. Remercie-le de sa fidélité.`;
+    case "gift": return `${who} vient d'offrir ${plural(e.total, "abonnement")}${tierTxt(e.tier)} à la communauté${e.cumulative ? ` (${e.cumulative} offerts au total sur la chaîne)` : ""}. Remercie-le de sa générosité.`;
+    case "bits": return `${who} vient d'envoyer ${e.bits} bits${e.message ? ` avec ce message : « ${e.message.slice(0, 200)} »` : ""}. Remercie-le.`;
+  }
+  return "";
+}
+function eventFallback(e) {
+  const at = e.name ? "@" + e.name : "";
+  switch (e.type) {
+    case "raid": return `Merci pour le raid ${at} ! Bienvenue aux ${e.viewers} viewers, installez-vous 🎉`;
+    case "follow": return `Bienvenue ${e.names.map(n => "@" + n).join(", ")} ! Merci pour le follow 💜`;
+    case "sub": return `Merci pour le sub ${at}, bienvenue dans la team 💜`;
+    case "resub": return `Merci ${at} pour ${e.months ? e.months + " mois de" : "ton"} soutien 💜`;
+    case "gift": return `Merci ${at || "à notre généreux anonyme"} pour ${plural(e.total, "sub")} offert${e.total > 1 ? "s" : ""} 🎁`;
+    case "bits": return `Merci ${at || "à notre mystérieux donateur"} pour les ${e.bits} bits 💜`;
+  }
+  return "Merci 💜";
+}
+function finishThanks(e, text) {
+  let s = text;
+  const names = e.names || (e.name ? [e.name] : []);
+  const missing = names.filter(n => !s.toLowerCase().includes("@" + n.toLowerCase()));
+  if (missing.length === names.length && names.length) s = missing.map(n => "@" + n).join(" ") + " " + s;
+  if (e.type === "raid" && e.login && $("raidLink").checked && !/twitch\.tv\//i.test(s)) s += ` → twitch.tv/${e.login}`;
+  return s.slice(0, 500);
 }
 
 /* ======================== logique de réponse ======================== */
@@ -382,9 +552,16 @@ function onChat(ev) {
   userLast.set(login, now); minuteLog.push(now);
   enqueue({ name, login, text: trig.q || text, msgId: ev.message_id, kind: trig.kind, live: true });
 }
-function enqueue(item) {
-  if (queue.length >= 4) { const d = queue.shift(); log("sys", "", `File pleine : la question de ${d.name} est abandonnée.`); }
-  queue.push(item); pump();
+function enqueue(item, priority) {
+  // les remerciements passent avant les questions du chat, et ne sont jamais abandonnés
+  if (queue.length >= 4) {
+    const i = queue.findIndex(q => !q.event);
+    if (i >= 0) { const d = queue.splice(i, 1)[0]; log("sys", "", `File pleine : la question de ${d.name} est abandonnée.`); }
+    else if (!priority) { log("sys", "", `File pleine : la question de ${item.name} est abandonnée.`); return; }
+  }
+  if (priority) { const i = queue.findIndex(q => !q.event); i < 0 ? queue.push(item) : queue.splice(i, 0, item); }
+  else queue.push(item);
+  pump();
 }
 async function pump() {
   if (working) return;
@@ -406,7 +583,7 @@ function buildSystem() {
     "Règles :",
     "- Réponds dans la langue du viewer, en le tutoyant, comme un habitué du chat Twitch.",
     `- Réponse courte : une ou deux phrases, ${maxC} caractères maximum. Pas de listes, pas de markdown, pas de guillemets autour.`,
-    "- Réponds directement, sans saluer à chaque fois et sans réécrire le pseudo : ta réponse s'affiche déjà en réponse à son message.",
+    "- Quand tu réponds à un message du chat, va droit au but, sans saluer à chaque fois et sans réécrire le pseudo : ta réponse s'affiche déjà en fil sous son message.",
     "- Ne commence jamais ta réponse par « / » ou « . ».",
     `- Tu n'es pas ${chan} : ne parle jamais en son nom et ne promets rien à sa place (cadeaux, parties, argent, dates).`,
     "- Si on te demande si tu es un bot ou une IA, dis-le franchement.",
@@ -417,6 +594,13 @@ function buildSystem() {
   ].filter(Boolean).join("\n");
 }
 function buildUser(it) {
+  if (it.event) {
+    const names = it.event.names || (it.event.name ? [it.event.name] : []);
+    return `Événement sur la chaîne : ${eventDesc(it.event)}\n` +
+      "Écris le message de remerciement que tu postes dans le chat : chaleureux, original, dans ta personnalité et adapté au live en cours, une ou deux phrases. " +
+      (names.length ? `Mentionne ${names.map(n => "@" + n).join(", ")} une seule fois. ` : "La personne est anonyme : ne cite aucun pseudo. ") +
+      "Ne promets rien au nom du streamer.\n\nTon message (le texte seul) :";
+  }
   const ctx = recent.slice(-16, it.live ? -1 : undefined).map(m => `${m.bot ? "[toi] " : ""}${m.user} : ${m.text}`).join("\n");
   return (ctx ? `Derniers messages du chat (du plus ancien au plus récent) :\n${ctx}\n\n` : "") + `Message auquel tu réponds, de ${it.name} : ${it.text}\n\nTa réponse (le texte seul) :`;
 }
@@ -430,28 +614,36 @@ function cleanReply(t, maxC) {
   return s.slice(0, 500);
 }
 async function answer(it) {
-  if (!aiKey()) { log("ferr", "", "Aucune clé d'IA : ajoute-la dans « Réglages IA »."); return; }
+  if (!aiKey() && !it.event) { log("ferr", "", "Aucune clé d'IA : ajoute-la dans « Réglages IA »."); return; }
   const wait = Math.max(pausedUntil, lastReply + num("cdGlobal", 4, 0, 120) * 1000) - Date.now();
   if (wait > 0) await sleep(wait);
   if (it.live && !running) return;
   const maxC = num("len", 250, 100, 450);
   let reply;
-  try { reply = cleanReply(await aiChat(buildSystem(), buildUser(it), maxC), maxC); }
+  try {
+    if (!aiKey()) throw new Error("Pas de clé d'IA : remerciement standard.");
+    reply = cleanReply(await aiChat(buildSystem(), buildUser(it), maxC), maxC);
+  }
   catch (e) {
     log("ferr", "", e.message);
     if (e.retry) pausedUntil = Date.now() + e.retry * 1000;
     if (e.fatal && running) stopBot("err");
-    return;
+    if (!it.event) return;
+    reply = eventFallback(it.event); // un remerciement part toujours, même si l'IA ne répond pas
   }
   lastReply = Date.now();
+  if (it.event) reply = finishThanks(it.event, reply || eventFallback(it.event));
   if (!reply) { log("sys", "", "L'IA n'a rien répondu, question ignorée."); return; }
   const botLabel = $("botName").value.trim() || (tw.me ? tw.me.name : "Bot");
-  if (!it.live) { log("bot", botLabel, reply, "essai"); return; }
+  const tag = it.event ? "remerciement" : "→ " + it.name;
+  if (!it.live) { log("bot", botLabel, reply, it.event ? "essai de remerciement" : "essai"); return; }
   if ($("testMode").checked) { log("bot", botLabel, reply, "mode test, non envoyé"); recent.push({ user: botLabel, text: reply, bot: true }); return; }
   try {
-    const r = await helix("chat/messages", { method: "POST", body: JSON.stringify({ broadcaster_id: tw.chan.id, sender_id: tw.me.id, message: reply, reply_parent_message_id: it.msgId }) });
+    const body = { broadcaster_id: tw.chan.id, sender_id: tw.me.id, message: reply };
+    if (it.msgId) body.reply_parent_message_id = it.msgId;
+    const r = await helix("chat/messages", { method: "POST", body: JSON.stringify(body) });
     const d = r && r.data && r.data[0];
-    if (d && d.is_sent) { replies++; log("bot", botLabel, reply, "→ " + it.name); updateStatus(); }
+    if (d && d.is_sent) { replies++; if (it.event) thanks++; log("bot", botLabel, reply, tag); updateStatus(); }
     else log("ferr", "", "Twitch a bloqué la réponse : " + (d && d.drop_reason ? d.drop_reason.message || d.drop_reason.code : "raison inconnue") + ` (« ${reply} »)`);
   } catch (e) {
     if (e.message === "401") return;
@@ -469,7 +661,7 @@ function updateStatus() {
   else if ($("status").dataset.s !== "err") setStatus("off", "Arrêté");
   const parts = [];
   parts.push(aiKey() ? `IA : ${aiModel()} (${PROVIDERS[ai.provider].label})` : "IA : aucune clé");
-  if (running) parts.push(`${replies} réponse${replies > 1 ? "s" : ""} envoyée${replies > 1 ? "s" : ""}`);
+  if (running) parts.push(`${plural(replies - thanks, "réponse")} · ${plural(thanks, "remerciement")}`);
   $("stats").textContent = parts.join(" · ");
 }
 async function startBot() {
@@ -480,17 +672,22 @@ async function startBot() {
   try {
     if (!(await validate())) return;
     await resolveChannel(); await loadStream();
-    running = true; retries = 0; replies = 0; updateStatus();
-    openSocket();
+    if (tw.btoken) await validateBc();
+    renderBc();
+    if (tw.bc && tw.bc.id !== tw.chan.id) log("ferr", "", `Le compte connecté pour les subs (${tw.bc.login}) n'est pas la chaîne ${tw.chan.name} : subs et bits désactivés.`);
+    running = true; replies = 0; thanks = 0; updateStatus();
+    conns.push(makeConn("au chat", tw.token, botSubs, true));
+    if (bcSubs().length) conns.push(makeConn("de ta chaîne", tw.btoken, bcSubs, false));
+    conns.forEach(c => c.start());
     streamTimer = setInterval(loadStream, 5 * 60 * 1000);
   } catch (e) {
     if (e.message !== "401") { log("ferr", "", e.message); setStatus("err", "Erreur"); }
   } finally { b.disabled = false; }
 }
 function stopBot(state) {
-  running = false; clearTimeout(kaTimer); clearInterval(streamTimer);
-  queue = [];
-  const s = ws; ws = null; try { s && s.close(); } catch (e) {}
+  running = false; clearInterval(streamTimer);
+  queue = []; followBuf = []; clearTimeout(followTimer); followTimer = null;
+  conns.splice(0).forEach(c => c.stop());
   if (state === "err") setStatus("err", "Arrêté sur erreur"); else { setStatus("off", "Arrêté"); log("sys", "", "Bot arrêté."); }
   updateStatus();
 }
@@ -509,6 +706,25 @@ async function tryIt() {
   $("tryBtn").disabled = false; $("tryMsg").value = "";
 }
 $("tryBtn").addEventListener("click", tryIt);
+/* simuler un événement, pour régler les remerciements sans attendre un vrai raid */
+const SIMS = {
+  raid: () => ({ type: "raid", name: "StreameurAmi", login: "streameurami", viewers: 23, game: tw.stream && tw.stream.game || "Peak" }),
+  follow: () => ({ type: "follow", names: ["NouveauViewer"] }),
+  sub: () => ({ type: "sub", name: "FidèleViewer", tier: "1000" }),
+  resub: () => ({ type: "resub", name: "VieuxDeLaVieille", months: 14, message: "toujours là pour les apéros du vendredi !" }),
+  gift: () => ({ type: "gift", name: "Généreux42", total: 5, tier: "1000" }),
+  bits: () => ({ type: "bits", name: "PluieDeBits", bits: 500, message: "pour le boss !" })
+};
+$("sims").addEventListener("click", async e => {
+  const b = e.target.closest("[data-sim]"); if (!b) return;
+  if (!aiKey()) { openSettings(); return; }
+  const ev = SIMS[b.dataset.sim]();
+  log("evt", "", "Simulation : " + eventDesc(ev).split(".")[0]);
+  b.disabled = true;
+  await answer({ event: ev, name: ev.name || "", live: false });
+  b.disabled = false;
+});
+["thxFollow", "thxRaid", "thxSub", "thxGift", "thxBits"].forEach(id => $(id).addEventListener("change", () => { if (running) log("sys", "", "Ce réglage s'appliquera au prochain lancement du bot."); }));
 $("tryMsg").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); tryIt(); } });
 
 document.addEventListener("error", e => { if (e.target.tagName === "IMG") e.target.style.visibility = "hidden"; }, true);
@@ -523,10 +739,11 @@ async function init() {
     $("redir").textContent = REDIRECT;
     $("copyRedir").addEventListener("click", async () => { try { await navigator.clipboard.writeText(REDIRECT); toast("Adresse copiée"); } catch (e) { toast(REDIRECT); } });
   }
-  renderAccount(); updateStatus();
+  renderAccount(); renderBc(); updateStatus();
+  if (TWITCH_READY && tw.btoken) await validateBc();
   if (TWITCH_READY && tw.token && await validate()) {
     await loadMe();
-    validateTimer = setInterval(validate, 60 * 60 * 1000); // Twitch demande de revalider le jeton toutes les heures
+    validateTimer = setInterval(() => { validate(); validateBc(); }, 60 * 60 * 1000); // Twitch demande de revalider les jetons toutes les heures
   }
 }
 init();
