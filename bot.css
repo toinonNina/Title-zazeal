@@ -1,0 +1,41 @@
+/* Page du bot : reprend style.css, ajoute la console de pilotage et le fil du chat */
+input[type=number]{width:100%;font:16px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-height:44px}
+.row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:end}
+.l.small{font-size:13px;font-weight:500;color:var(--mute)}
+.chk.small{font-size:14px;min-height:36px}
+#cmd{margin-top:4px;max-width:180px}
+#persoCustom{margin-top:10px}
+.chip[aria-checked=true]{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.run{margin-bottom:16px}
+.run-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.pill{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;padding:6px 12px;border-radius:999px;background:var(--soft)}
+.pill::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--mute)}
+.pill[data-s=on]::before{background:var(--mint);box-shadow:0 0 0 4px color-mix(in srgb,var(--mint) 25%,transparent)}
+.pill[data-s=test]::before{background:#f5b82e}
+.pill[data-s=wait]::before{background:#f5b82e;animation:blink 1s infinite}
+.pill[data-s=err]::before{background:var(--bad)}
+@keyframes blink{50%{opacity:.3}}
+.stats{font-size:13px;color:var(--mute)}
+.run-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin-top:14px}
+#startBtn.stop{background:var(--bad)}
+.tryit{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.tryrow{display:flex;gap:8px}
+.tryrow input{flex:1}
+.feed-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 10px}
+.feed{list-style:none;margin:0;padding:6px;background:var(--panel);border:1px solid var(--line);border-radius:18px;height:clamp(360px,62vh,720px);overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.feed:empty::before{content:"Le chat s'affichera ici une fois le bot lancé. Tu peux aussi l'essayer avec « Tester » juste au-dessus.";color:var(--mute);padding:28px 18px;text-align:center;margin:auto;max-width:44ch}
+.feed li{padding:7px 10px;border-radius:10px;font-size:15px;line-height:1.45;overflow-wrap:anywhere}
+.feed time{font-size:12px;color:var(--mute);margin-right:8px;font-variant-numeric:tabular-nums}
+.feed b{font-weight:600}
+.feed .chat b{color:var(--mute)}
+.feed .trig{background:var(--soft)}
+.feed .trig b{color:var(--ink)}
+.feed .bot{background:color-mix(in srgb,var(--acc) 16%,transparent);border-left:3px solid var(--acc)}
+.feed .bot b{color:var(--acc)}
+.feed .bot .tag{font-size:12px;color:var(--mute);margin-left:6px}
+.feed .sys{color:var(--mute);font-size:13px;font-style:italic}
+.feed .ferr{color:var(--bad);font-size:14px}
+body.hide-chat .feed .chat{display:none}
+@media(max-width:600px){.row3{grid-template-columns:minmax(0,1fr)}.tryrow{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){.pill[data-s=wait]::before{animation:none}}
+@media(max-width:900px){.grid>div{order:-1}}
